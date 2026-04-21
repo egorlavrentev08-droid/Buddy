@@ -321,7 +321,6 @@ async def clan_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def clan_players(update: Update, context: ContextTypes.DEFAULT_TYPE):
-async def clan_players(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Список игроков в клане"""
     if len(context.args) < 2:
         await update.message.reply_text("❌ /clan players [название клана]")
