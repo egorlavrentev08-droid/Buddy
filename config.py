@@ -6,7 +6,7 @@ import logging
 from datetime import datetime, timedelta
 
 # ==================== НАСТРОЙКИ БОТА ====================
-TOKEN = '8492718356:AAFWFI79XqRH5L2aSQYoOTOOpu5shlra4Wc'
+TOKEN = '8746321266:AAGKg_S2EQdgoOFAAk7FBqdvyl60xJ5XprI'
 ADMIN_CODE = '1252836169043217'
 SUPER_ADMIN_IDS = [6595788533]
 
