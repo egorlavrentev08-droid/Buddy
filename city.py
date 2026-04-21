@@ -78,6 +78,7 @@ def format_city_map(city_map):
 # ==================== КОМАНДЫ ====================
 
 async def city(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def city(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показать карту кланового города"""
     user_id = update.effective_user.id
     user = get_user(user_id)
@@ -118,9 +119,12 @@ async def city(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text += "/city_upgrade [тип] — улучшить\n"
     text += "/city_info [координаты] — информация о клетке"
     
-    await update.message.reply_text(text, parse_mode='Markdown')
-
-
+    try:
+        await update.message.reply_text(text, parse_mode='Markdown')
+    except Exception as e:
+        logger.error(f"Markdown error in city: {e}")
+        await update.message.reply_text(text)  # отправляем без форматирования
+        
 async def city_build(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Построить здание на указанной клетке"""
     if len(context.args) < 2:
