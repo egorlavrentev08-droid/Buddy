@@ -321,6 +321,7 @@ async def clan_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def clan_players(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def clan_players(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Список игроков в клане"""
     if len(context.args) < 2:
         await update.message.reply_text("❌ /clan players [название клана]")
@@ -345,11 +346,11 @@ async def clan_players(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     for i, member in enumerate(members, 1):
         role = "👑 Лидер" if member['user_id'] == clan['leader_id'] else "🔹 Участник"
-        text += f"{i}. *{member.get('username', f'ID:{member['user_id']}')}* — {role}\n"
+        member_name = member.get('username', f"ID:{member['user_id']}")
+        text += f"{i}. *{member_name}* — {role}\n"
     
     await update.message.reply_text(text, parse_mode='Markdown')
-
-
+    
 async def clan_goodbye(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Распустить клан (только лидер)"""
     user_id = update.effective_user.id
