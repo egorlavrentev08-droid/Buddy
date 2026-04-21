@@ -7,7 +7,7 @@ from telegram.ext import ContextTypes
 
 from config import logger, ADMIN_CODE, SUPER_ADMIN_IDS
 from core import is_admin
-from database import Session, User, Clan
+from database import get_user, save_user, get_all_users, get_clan, save_clan, get_all_clans
 
 
 # ==================== ВЫДАЧА ПРАВ ====================
@@ -19,21 +19,12 @@ async def admin_giveme(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     if context.args[0] == ADMIN_CODE:
-        session = Session()
-        try:
-            user = session.query(User).filter_by(user_id=update.effective_user.id).first()
-            if not user:
-                user = User(user_id=update.effective_user.id, username=update.effective_user.username)
-                session.add(user)
-            user.is_admin = True
-            user.is_blocked = False
-            session.commit()
-            await update.message.reply_text("✅ *Админ-права получены!*", parse_mode='Markdown')
-        except Exception as e:
-            logger.error(f"Error in admin_giveme: {e}")
-            await update.message.reply_text("❌ Ошибка")
-        finally:
-            Session.remove()
+        user_id = update.effective_user.id
+        user = get_user(user_id)
+        user['is_admin'] = True
+        user['is_blocked'] = False
+        save_user(user)
+        await update.message.reply_text("✅ *Админ-права получены!*", parse_mode='Markdown')
     else:
         await update.message.reply_text("❌ *Неверный код!*", parse_mode='Markdown')
 
@@ -61,63 +52,57 @@ async def admin_give(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     resource = context.args[2].upper()
-    session = Session()
-    try:
-        user = session.query(User).filter_by(username=username).first()
-        if not user:
-            await update.message.reply_text("❌ Пользователь не найден")
-            return
+    
+    # Находим пользователя
+    users = get_all_users()
+    target = next((u for u in users if u.get('username') == username), None)
+    if not target:
+        await update.message.reply_text("❌ Пользователь не найден")
+        return
+    
+    if resource == 'RC':
+        target['radcoins'] = target.get('radcoins', 0) + amount
+        save_user(target)
+        await update.message.reply_text(f"✅ *Выдано {amount} RC @{username}*", parse_mode='Markdown')
         
-        if resource == 'RC':
-            user.radcoins += amount
-            session.commit()
-            await update.message.reply_text(f"✅ *Выдано {amount} RC @{username}*", parse_mode='Markdown')
-            
-        elif resource == 'RF':
-            user.radfragments += amount
-            session.commit()
-            await update.message.reply_text(f"✅ *Выдано {amount} RF @{username}*", parse_mode='Markdown')
-            
-        elif resource == 'RCR':
-            # Кристаллы идут в казну клана
-            if user.clan_id:
-                clan = session.query(Clan).filter_by(id=user.clan_id).first()
-                if clan:
-                    clan.treasury_crystals += amount
-                    session.commit()
-                    await update.message.reply_text(
-                        f"✅ *Выдано {amount} кристаллов в казну клана {clan.name}!*\n"
-                        f"📊 Теперь в казне: {clan.treasury_crystals} кристаллов",
-                        parse_mode='Markdown'
-                    )
-                else:
-                    user.radcrystals += amount
-                    session.commit()
-                    await update.message.reply_text(f"✅ *Выдано {amount} кристаллов лично @{username}*", parse_mode='Markdown')
+    elif resource == 'RF':
+        target['radfragments'] = target.get('radfragments', 0) + amount
+        save_user(target)
+        await update.message.reply_text(f"✅ *Выдано {amount} RF @{username}*", parse_mode='Markdown')
+        
+    elif resource == 'RCR':
+        # Кристаллы идут в казну клана
+        if target.get('clan_id'):
+            clan = get_clan(target['clan_id'])
+            if clan:
+                clan['treasury_crystals'] = clan.get('treasury_crystals', 0) + amount
+                save_clan(clan)
+                await update.message.reply_text(
+                    f"✅ *Выдано {amount} кристаллов в казну клана {clan['name']}!*\n"
+                    f"📊 Теперь в казне: {clan['treasury_crystals']} кристаллов",
+                    parse_mode='Markdown'
+                )
             else:
-                user.radcrystals += amount
-                session.commit()
+                target['radcrystals'] = target.get('radcrystals', 0) + amount
+                save_user(target)
                 await update.message.reply_text(f"✅ *Выдано {amount} кристаллов лично @{username}*", parse_mode='Markdown')
         else:
-            await update.message.reply_text("❌ Доступно: RC, RF, RCr")
-            return
-        
-        # Уведомление игрока
-        try:
-            await context.bot.send_message(
-                user.user_id,
-                f"💰 *Администратор выдал вам {amount} {resource}!*",
-                parse_mode='Markdown'
-            )
-        except:
-            pass
-        
-    except Exception as e:
-        logger.error(f"Error in admin_give: {e}")
-        session.rollback()
-        await update.message.reply_text("❌ Ошибка")
-    finally:
-        Session.remove()
+            target['radcrystals'] = target.get('radcrystals', 0) + amount
+            save_user(target)
+            await update.message.reply_text(f"✅ *Выдано {amount} кристаллов лично @{username}*", parse_mode='Markdown')
+    else:
+        await update.message.reply_text("❌ Доступно: RC, RF, RCr")
+        return
+    
+    # Уведомление игрока
+    try:
+        await context.bot.send_message(
+            target['user_id'],
+            f"💰 *Администратор выдал вам {amount} {resource}!*",
+            parse_mode='Markdown'
+        )
+    except:
+        pass
 
 
 async def admin_take(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -141,44 +126,35 @@ async def admin_take(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     resource = context.args[2].upper()
-    session = Session()
-    try:
-        user = session.query(User).filter_by(username=username).first()
-        if not user:
-            await update.message.reply_text("❌ Пользователь не найден")
+    
+    users = get_all_users()
+    target = next((u for u in users if u.get('username') == username), None)
+    if not target:
+        await update.message.reply_text("❌ Пользователь не найден")
+        return
+    
+    if resource == 'RC':
+        if target.get('radcoins', 0) < amount:
+            await update.message.reply_text(f"❌ У @{username} {target.get('radcoins', 0):.0f} RC")
             return
-        
-        if resource == 'RC':
-            if user.radcoins < amount:
-                await update.message.reply_text(f"❌ У @{username} {user.radcoins:.0f} RC")
-                return
-            user.radcoins -= amount
-        elif resource == 'RF':
-            if user.radfragments < amount:
-                await update.message.reply_text(f"❌ У @{username} {user.radfragments} RF")
-                return
-            user.radfragments -= amount
-        elif resource == 'RCR':
-            if user.radcrystals < amount:
-                await update.message.reply_text(f"❌ У @{username} {user.radcrystals} RCr")
-                return
-            user.radcrystals -= amount
-        else:
-            await update.message.reply_text("❌ RC, RF или RCr")
+        target['radcoins'] = target.get('radcoins', 0) - amount
+    elif resource == 'RF':
+        if target.get('radfragments', 0) < amount:
+            await update.message.reply_text(f"❌ У @{username} {target.get('radfragments', 0)} RF")
             return
-        
-        session.commit()
-        await update.message.reply_text(f"✅ *Забрано {amount} {resource} у @{username}*", parse_mode='Markdown')
-        
-    except Exception as e:
-        logger.error(f"Error in admin_take: {e}")
-        session.rollback()
-        await update.message.reply_text("❌ Ошибка")
-    finally:
-        Session.remove()
+        target['radfragments'] = target.get('radfragments', 0) - amount
+    elif resource == 'RCR':
+        if target.get('radcrystals', 0) < amount:
+            await update.message.reply_text(f"❌ У @{username} {target.get('radcrystals', 0)} RCr")
+            return
+        target['radcrystals'] = target.get('radcrystals', 0) - amount
+    else:
+        await update.message.reply_text("❌ RC, RF или RCr")
+        return
+    
+    save_user(target)
+    await update.message.reply_text(f"✅ *Забрано {amount} {resource} у @{username}*", parse_mode='Markdown')
 
-
-# ==================== УПРАВЛЕНИЕ УРОВНЕМ ====================
 
 async def admin_setlevel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Установить уровень игроку"""
@@ -200,28 +176,18 @@ async def admin_setlevel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Введите число")
         return
     
-    session = Session()
-    try:
-        user = session.query(User).filter_by(username=username).first()
-        if not user:
-            await update.message.reply_text("❌ Пользователь не найден")
-            return
-        
-        old_level = user.level
-        user.level = level
-        session.commit()
-        
-        await update.message.reply_text(f"📈 *@{username}: {old_level} → {level} уровень*", parse_mode='Markdown')
-        
-    except Exception as e:
-        logger.error(f"Error in admin_setlevel: {e}")
-        session.rollback()
-        await update.message.reply_text("❌ Ошибка")
-    finally:
-        Session.remove()
+    users = get_all_users()
+    target = next((u for u in users if u.get('username') == username), None)
+    if not target:
+        await update.message.reply_text("❌ Пользователь не найден")
+        return
+    
+    old_level = target.get('level', 1)
+    target['level'] = level
+    save_user(target)
+    
+    await update.message.reply_text(f"📈 *@{username}: {old_level} → {level} уровень*", parse_mode='Markdown')
 
-
-# ==================== ПРОСМОТР ИГРОКОВ ====================
 
 async def admin_players(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Список всех игроков"""
@@ -229,55 +195,39 @@ async def admin_players(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Нет прав!")
         return
     
-    session = Session()
-    try:
-        users = session.query(User).order_by(User.level.desc()).all()
-        if not users:
-            await update.message.reply_text("📋 *Нет игроков*", parse_mode='Markdown')
-            return
+    users = get_all_users()
+    if not users:
+        await update.message.reply_text("📋 *Нет игроков*", parse_mode='Markdown')
+        return
+    
+    text = "👥 *Список игроков*\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    for i, u in enumerate(users, 1):
+        clan_name = "—"
+        if u.get('clan_id'):
+            clan = get_clan(u['clan_id'])
+            if clan:
+                clan_name = clan['name']
+        text += f"{i}. *{u.get('username', f'ID:{u['user_id']}')}* — ур.{u.get('level', 1)}, 🏰{clan_name}\n"
         
-        text = "👥 *Список игроков*\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        for i, u in enumerate(users, 1):
-            clan_name = "—"
-            if u.clan_id:
-                clan = session.query(Clan).filter_by(id=u.clan_id).first()
-                if clan:
-                    clan_name = clan.name
-            text += f"{i}. *{u.username or f'ID:{u.user_id}'}* — ур.{u.level}, 🏰{clan_name}\n"
-            
-            if len(text) > 3500:
-                await update.message.reply_text(text, parse_mode='Markdown')
-                text = ""
-        
-        if text:
+        if len(text) > 3500:
             await update.message.reply_text(text, parse_mode='Markdown')
-        
-    except Exception as e:
-        logger.error(f"Error in admin_players: {e}")
-        await update.message.reply_text("❌ Ошибка")
-    finally:
-        Session.remove()
+            text = ""
+    
+    if text:
+        await update.message.reply_text(text, parse_mode='Markdown')
 
-
-# ==================== АДМИНЫ ====================
 
 async def admins(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Список администраторов"""
-    session = Session()
-    try:
-        admins_list = session.query(User).filter(User.is_admin == True).all()
-        if not admins_list:
-            await update.message.reply_text("📋 *Нет администраторов*", parse_mode='Markdown')
-            return
-        
-        text = "👑 *Администраторы*\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        for i, a in enumerate(admins_list, 1):
-            main = " (ГЛАВНЫЙ)" if a.user_id in SUPER_ADMIN_IDS else ""
-            text += f"{i}. *{a.username or f'ID:{a.user_id}'}*{main}\n"
-        await update.message.reply_text(text, parse_mode='Markdown')
-        
-    except Exception as e:
-        logger.error(f"Error in admins: {e}")
-        await update.message.reply_text("❌ Ошибка")
-    finally:
-        Session.remove()
+    users = get_all_users()
+    admins_list = [u for u in users if u.get('is_admin')]
+    
+    if not admins_list:
+        await update.message.reply_text("📋 *Нет администраторов*", parse_mode='Markdown')
+        return
+    
+    text = "👑 *Администраторы*\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    for i, a in enumerate(admins_list, 1):
+        main = " (ГЛАВНЫЙ)" if a['user_id'] in SUPER_ADMIN_IDS else ""
+        text += f"{i}. *{a.get('username', f'ID:{a['user_id']}')}*{main}\n"
+    await update.message.reply_text(text, parse_mode='Markdown')
