@@ -1,4 +1,4 @@
-# core.py - Ядро тестового бота RadCoin Buddy
+# core.py - Ядро тестового бота RadCoin Buddy (упрощённая версия)
 # Версия: 0.1.0
 
 import os
@@ -8,7 +8,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from config import logger, BACKUP_DIR
-from database import Session, User
+from database import get_user, get_all_users, save_user
 
 
 # ==================== ПРОВЕРКА АДМИНА ====================
@@ -16,17 +16,8 @@ from database import Session, User
 async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     """Проверить, является ли пользователь администратором"""
     user_id = update.effective_user.id
-    session = Session()
-    try:
-        user = session.query(User).filter_by(user_id=user_id).first()
-        if not user:
-            return False
-        return user.is_admin and not user.is_blocked
-    except Exception as e:
-        logger.error(f"Error checking admin: {e}")
-        return False
-    finally:
-        Session.remove()
+    user = get_user(user_id)
+    return user.get('is_admin', False) and not user.get('is_blocked', False)
 
 
 # ==================== ОТПРАВКА В ЛИЧКУ ====================
@@ -48,13 +39,13 @@ async def send_to_private(update: Update, context: ContextTypes.DEFAULT_TYPE, te
 def auto_backup():
     """Автоматическое создание бэкапа базы данных"""
     try:
-        db_path = 'radcoin_buddy.db'
+        db_path = 'radcoin_buddy_data.json'
         if os.path.exists(db_path):
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            backup_name = f"radcoin_buddy.db.backup_{timestamp}.db"
+            backup_name = f"radcoin_buddy_data.backup_{timestamp}.json"
             backup_path = os.path.join(BACKUP_DIR, backup_name)
             shutil.copy(db_path, backup_path)
-            backups_list = sorted([f for f in os.listdir(BACKUP_DIR) if f.startswith('radcoin_buddy.db.backup')])
+            backups_list = sorted([f for f in os.listdir(BACKUP_DIR) if f.startswith('radcoin_buddy_data.backup')])
             if len(backups_list) > 24:
                 for old_backup in backups_list[:-24]:
                     os.remove(os.path.join(BACKUP_DIR, old_backup))
@@ -71,7 +62,7 @@ async def backups(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Нет прав!")
         return
     try:
-        backups_list = sorted([f for f in os.listdir(BACKUP_DIR) if f.startswith('radcoin_buddy.db.backup')])
+        backups_list = sorted([f for f in os.listdir(BACKUP_DIR) if f.startswith('radcoin_buddy_data.backup')])
         if not backups_list:
             await update.message.reply_text("📋 *Нет бэкапов*", parse_mode='Markdown')
             return
@@ -99,7 +90,7 @@ async def restore_backup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Бэкап `{backup_name}` не найден!")
         return
     auto_backup()
-    shutil.copy(backup_path, 'radcoin_buddy.db')
+    shutil.copy(backup_path, 'radcoin_buddy_data.json')
     await update.message.reply_text(f"✅ *База восстановлена!* Перезапустите бота.")
     os._exit(0)
 
@@ -110,11 +101,11 @@ async def backup_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Нет прав!")
         return
     try:
-        if os.path.exists('radcoin_buddy.db'):
+        if os.path.exists('radcoin_buddy_data.json'):
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            backup_name = f"radcoin_buddy.db.backup_{timestamp}.db"
+            backup_name = f"radcoin_buddy_data.backup_{timestamp}.json"
             backup_path = os.path.join(BACKUP_DIR, backup_name)
-            shutil.copy('radcoin_buddy.db', backup_path)
+            shutil.copy('radcoin_buddy_data.json', backup_path)
             await update.message.reply_text(f"✅ *Бэкап создан:* `{backup_name}`", parse_mode='Markdown')
         else:
             await update.message.reply_text("❌ База не найдена!")
