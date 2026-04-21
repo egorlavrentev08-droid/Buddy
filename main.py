@@ -1,6 +1,11 @@
 # main.py - Запуск и регистрация команд
 # Версия: 2.0.0
 
+from city import (
+    clan_city, clan_build, clan_upgrade, clan_produce,
+    clan_raid, clan_mine
+)
+
 from datetime import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from telegram.ext import CommandHandler, MessageHandler, filters
@@ -78,6 +83,21 @@ def register_handlers(app):
     app.add_handler(CommandHandler("radion", radion))
     app.add_handler(CommandHandler("radio", radio))
     app.add_handler(CommandHandler("aradio", aradio))
+    # main.py — добавить импорты
+
+
+# и хендлеры
+app.add_handler(CommandHandler("clan_city", clan_city))
+app.add_handler(CommandHandler("clan_build", clan_build))
+app.add_handler(CommandHandler("clan_upgrade", clan_upgrade))
+app.add_handler(CommandHandler("clan_produce", clan_produce))
+app.add_handler(CommandHandler("clan_raid", clan_raid))
+app.add_handler(CommandHandler("clan_mine", clan_mine))
+
+# и шедулеры
+scheduler.add_job(check_production_complete, 'interval', minutes=1)
+scheduler.add_job(check_raid_trigger, 'interval', minutes=10)
+scheduler.add_job(check_daily_bonus, 'interval', hours=24)
     
     # Сундуки и фабрики
     app.add_handler(CommandHandler("chest", chest_command))
