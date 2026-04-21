@@ -522,34 +522,123 @@ async def mine(update, context, clan):
 
 # ==================== ОСНОВНЫЕ КОМАНДЫ ====================
 
-async def show_map(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def city(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Главное меню кланового города (только команды, не карта)"""
     session = Session()
     try:
         user = session.query(User).filter_by(user_id=update.effective_user.id).first()
         if not user or not user.clan_id:
             await update.message.reply_text("❌ Вы не в клане!")
             return
+        
+        clan = session.query(Clan).filter_by(id=user.clan_id).first()
+        if not clan:
+            await update.message.reply_text("❌ Клан не найден!")
+            return
+        
+        # Если город не создан
+        if clan.city_level == 0:
+            if clan.leader_id != user.user_id:
+                await update.message.reply_text("❌ Только лидер клана может создать город!")
+                return
+            
+            clan.city_level = 1
+            set_building_level(clan, 'residence', 1, 4, 6)
+            save_resources(clan, {'crystals': 0, 'storage': {}})
+            session.commit()
+            
+            await update.message.reply_text(
+                "🏰 *Клановый город создан!*\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                "📝 *Команды:*\n"
+                "• `/city` — это меню\n"
+                "• `/city map` — карта города\n"
+                "• `/city build [здание] [клетка]` — построить\n"
+                "• `/city upgrade [здание]` — улучшить\n"
+                "• `/city craft [предмет] [кол-во]` — произвести\n"
+                "• `/city mine` — шахта\n"
+                "• `/city raid` — отразить атаку\n\n"
+                "🏛️ *Доступные здания:*\n"
+                "• банк (100) — доход в казну\n"
+                "• мастерская (80) — расходники\n"
+                "• завод (150) — броня и оружие\n"
+                "• склад (50) — хранилище\n"
+                "• жк (100) — жилой комплекс\n"
+                "• вышка (50) — защита\n"
+                "• шахта (120) — кристаллы\n\n"
+                "📍 Пример: `/city build банк А1`",
+                parse_mode='Markdown'
+            )
+            return
+        
+        # Если город есть — показываем команды
+        resources = get_resources(clan)
+        buildings = get_buildings(clan)
+        residence_level = get_residence_level(clan)
+        
+        text = f"🏰 *Клановый город {clan.name}*\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        text += f"📊 *Резиденция:* {residence_level} ур.\n"
+        text += f"💎 *Кристаллов:* {resources.get('crystals', 0)}\n"
+        text += f"📦 *Склад:* {get_storage_used(clan)}/{get_storage_capacity(clan)}\n"
+        
+        # Список зданий кратко
+        if buildings:
+            text += "\n🏛️ *Здания:*\n"
+            for b_data in buildings.values():
+                b_type = b_data.get('type')
+                level = b_data.get('level', 1)
+                name_ru = BUILDING_NAMES_RU.get(b_type, b_type)
+                text += f"• {name_ru} (ур.{level})\n"
+        
+        text += "\n📝 *Команды:*\n"
+        text += "• `/city map` — карта города\n"
+        text += "• `/city build [здание] [клетка]` — построить\n"
+        text += "• `/city upgrade [здание]` — улучшить\n"
+        text += "• `/city craft [предмет] [кол-во]` — произвести\n"
+        text += "• `/city mine` — шахта\n"
+        text += "• `/city raid` — отразить атаку"
+        
+        await send_to_private(update, context, text)
+    finally:
+        Session.remove()
+
+
+async def city_map(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать карту кланового города"""
+    session = Session()
+    try:
+        user = session.query(User).filter_by(user_id=update.effective_user.id).first()
+        if not user or not user.clan_id:
+            await update.message.reply_text("❌ Вы не в клане!")
+            return
+        
         clan = session.query(Clan).filter_by(id=user.clan_id).first()
         if not clan or clan.city_level == 0:
             await update.message.reply_text("🏰 Город ещё не создан. Лидер может создать его командой `/city`", parse_mode='Markdown')
             return
+        
         buildings = get_buildings(clan)
         grid = [[MAP_TILE_EMPTY for _ in range(MAP_COLS)] for _ in range(MAP_ROWS)]
+        
         for b_data in buildings.values():
             row = b_data.get('row')
             col = b_data.get('col')
             if row is not None and col is not None:
                 grid[row][col] = get_tile_symbol(b_data.get('type'))
-        letters = "    "
-        for i in range(MAP_COLS):
-            letters += f"{chr(ord('А') + i)} "
+        
+        # Заголовок с буквами (компактный)
+        letters = "   " + " ".join([chr(ord('А') + i) for i in range(MAP_COLS)])
+        
         text = f"🗺️ *Карта города {clan.name}*\n━━━━━━━━━━━━━━━━━━━━━━━━\n```\n{letters}\n"
+        
         for i in range(MAP_ROWS):
-            row_text = f"{i+1:2}  "
-            for j in range(MAP_COLS):
-                row_text += f"{grid[i][j]} "
+            row_text = f"{i+1:2} " + " ".join(grid[i])
             text += row_text + "\n"
-        text += "```\n\n📝 *Легенда:*\n⬜ — пусто, 🏰 — резиденция, 🏦 — банк, 🔧 — мастерская\n🏭 — завод, 📦 — склад, 🏘️ — жк, 🗼 — вышка, ⛏️ — шахта\n\n🏛️ *Ваши здания:*\n"
+        
+        text += "```\n\n📝 *Легенда:*\n"
+        text += "⬜ — пусто, 🏰 — резиденция, 🏦 — банк, 🔧 — мастерская\n"
+        text += "🏭 — завод, 📦 — склад, 🏘️ — жк, 🗼 — вышка, ⛏️ — шахта\n\n"
+        text += "🏛️ *Ваши здания:*\n"
+        
         for b_data in buildings.values():
             b_type = b_data.get('type')
             level = b_data.get('level', 1)
@@ -558,44 +647,15 @@ async def show_map(update: Update, context: ContextTypes.DEFAULT_TYPE):
             cell = get_cell_name(row, col) if row is not None and col is not None else '?'
             name_ru = BUILDING_NAMES_RU.get(b_type, b_type)
             text += f"• {name_ru} (ур.{level}) — {cell}\n"
+        
         if not buildings:
             text += "• пока нет\n"
+        
         resources = get_resources(clan)
         text += f"\n💎 *Кристаллов:* {resources.get('crystals', 0)}"
         text += f"\n📦 *Склад:* {get_storage_used(clan)}/{get_storage_capacity(clan)}"
-        text += "\n\n📝 *Команды:*\n• `/city build [здание] [клетка]` — построить\n• `/city upgrade [здание]` — улучшить\n• `/city craft [предмет] [кол-во]` — произвести\n• `/city mine` — шахта\n• `/city raid` — отразить атаку"
+        
         await send_to_private(update, context, text)
-    finally:
-        Session.remove()
-
-async def city(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    session = Session()
-    try:
-        user = session.query(User).filter_by(user_id=update.effective_user.id).first()
-        if not user or not user.clan_id:
-            await update.message.reply_text("❌ Вы не в клане!")
-            return
-        clan = session.query(Clan).filter_by(id=user.clan_id).first()
-        if not clan:
-            await update.message.reply_text("❌ Клан не найден!")
-            return
-        if clan.city_level == 0:
-            if clan.leader_id != user.user_id:
-                await update.message.reply_text("❌ Только лидер клана может создать город!")
-                return
-            clan.city_level = 1
-            set_building_level(clan, 'residence', 1, 4, 6)
-            save_resources(clan, {'crystals': 0, 'storage': {}})
-            session.commit()
-            await update.message.reply_text(
-                "🏰 *Клановый город создан!*\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                "📝 *Команды:*\n• `/city` — карта города\n• `/city build [здание] [клетка]` — построить\n• `/city upgrade [здание]` — улучшить\n• `/city craft [предмет] [кол-во]` — произвести\n• `/city mine` — шахта\n• `/city raid` — отразить атаку\n\n"
-                "🏛️ *Доступные здания:*\n• банк — доход в казну (100)\n• мастерская — расходники (80)\n• завод — броня и оружие (150)\n• склад — хранилище (50)\n• жк — жилой комплекс (100)\n• вышка — защита (50)\n• шахта — кристаллы (120)\n\n"
-                "📍 Пример: `/city build банк А1`",
-                parse_mode='Markdown'
-            )
-            return
-        await show_map(update, context)
     finally:
         Session.remove()
 
