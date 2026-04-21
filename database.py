@@ -1,128 +1,173 @@
-# database.py - База данных для тестового бота RadCoin Buddy
-# Версия: 0.1.0
+# database.py - Упрощённая версия без SQLAlchemy
+# Для тестового бота RadCoin Buddy
 
+import json
+import os
 from datetime import datetime
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean, ForeignKey
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, scoped_session
 
-# ==================== СОЗДАНИЕ БАЗЫ ====================
-Base = declarative_base()
-engine = create_engine('sqlite:///radcoin_buddy.db', pool_size=10, max_overflow=20)
-Session = scoped_session(sessionmaker(bind=engine))
+DATA_FILE = 'radcoin_buddy_data.json'
 
-# ==================== КОНСТАНТЫ ====================
-SUPER_ADMIN_IDS = [6595788533]
+# Загрузка данных из файла
+def load_data():
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return {'users': {}, 'clans': {}, 'next_user_id': 1, 'next_clan_id': 1}
 
-
-# ==================== МОДЕЛЬ ПОЛЬЗОВАТЕЛЯ (минимум) ====================
-
-class User(Base):
-    __tablename__ = 'users'
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, unique=True)
-    username = Column(String)
-    
-    # Ресурсы
-    radcoins = Column(Float, default=0)
-    radfragments = Column(Integer, default=0)
-    radcrystals = Column(Integer, default=0)
-    
-    # Прогресс (минимум)
-    level = Column(Integer, default=1)
-    experience = Column(Integer, default=0)
-    
-    # Кланы
-    clan_id = Column(Integer, ForeignKey('clans.id'), nullable=True)
-    clan_role = Column(String, default='member')
-    
-    # Админ
-    is_admin = Column(Boolean, default=False)
-    is_blocked = Column(Boolean, default=False)
-    
-    # Время последнего посещения
-    last_seen = Column(DateTime, default=datetime.now)
+# Сохранение данных в файл
+def save_data(data):
+    with open(DATA_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
 
 
-# ==================== МОДЕЛЬ КЛАНА (с полями для города) ====================
+# ==================== ПОЛЬЗОВАТЕЛИ ====================
 
-class Clan(Base):
-    __tablename__ = 'clans'
-    id = Column(Integer, primary_key=True)
-    name = Column(String, unique=True)
-    leader_id = Column(Integer)
-    created_at = Column(DateTime, default=datetime.now)
+class User:
+    def __init__(self, user_id, username=None):
+        self.user_id = user_id
+        self.username = username
+        self.radcoins = 0
+        self.radfragments = 0
+        self.radcrystals = 0
+        self.level = 1
+        self.experience = 0
+        self.clan_id = None
+        self.clan_role = 'member'
+        self.is_admin = False
+        self.is_blocked = False
+        self.last_seen = datetime.now().isoformat()
+
+
+def get_user(user_id, username=None):
+    data = load_data()
+    user_key = str(user_id)
     
-    # Казна
-    treasury_coins = Column(Float, default=0)
-    treasury_crystals = Column(Integer, default=0)
+    if user_key not in data['users']:
+        user = User(user_id, username)
+        data['users'][user_key] = {
+            'user_id': user.user_id,
+            'username': user.username,
+            'radcoins': user.radcoins,
+            'radfragments': user.radfragments,
+            'radcrystals': user.radcrystals,
+            'level': user.level,
+            'experience': user.experience,
+            'clan_id': user.clan_id,
+            'clan_role': user.clan_role,
+            'is_admin': user.is_admin,
+            'is_blocked': user.is_blocked,
+            'last_seen': user.last_seen
+        }
+        save_data(data)
+    else:
+        # Обновляем username если изменился
+        if username and data['users'][user_key]['username'] != username:
+            data['users'][user_key]['username'] = username
+            save_data(data)
     
-    # Улучшения клана (базовые)
-    collect_bonus = Column(Integer, default=0)
-    exp_bonus = Column(Integer, default=0)
-    double_bonus = Column(Integer, default=0)
+    return data['users'][user_key]
+
+
+def save_user(user_data):
+    data = load_data()
+    data['users'][str(user_data['user_id'])] = user_data
+    save_data(data)
+
+
+def get_all_users():
+    data = load_data()
+    return list(data['users'].values())
+
+
+# ==================== КЛАНЫ ====================
+
+class Clan:
+    def __init__(self, name, leader_id):
+        self.id = None
+        self.name = name
+        self.leader_id = leader_id
+        self.created_at = datetime.now().isoformat()
+        self.treasury_coins = 0
+        self.treasury_crystals = 0
+        self.collect_bonus = 0
+        self.exp_bonus = 0
+        self.double_bonus = 0
+        self.city_map = [[ '⬜' for _ in range(10)] for _ in range(10)]
+        self.buildings = {}
+        self.production_queue = []
+        self.storage_items = {}
+        self.last_raid = None
+        self.raid_type = None
+        self.raid_end_time = None
+
+
+def create_clan(name, leader_id):
+    data = load_data()
+    clan_id = data['next_clan_id']
+    data['next_clan_id'] = clan_id + 1
     
-    # ========== НОВЫЕ ПОЛЯ ДЛЯ КЛАНОВОГО ГОРОДА ==========
-    city_map = Column(String, default='[]')           # JSON матрица 10х10
-    buildings = Column(String, default='{}')          # JSON здания клана
-    production_queue = Column(String, default='[]')   # JSON очередь производства
-    storage_items = Column(String, default='{}')      # JSON предметы на складах
+    clan = {
+        'id': clan_id,
+        'name': name,
+        'leader_id': leader_id,
+        'created_at': datetime.now().isoformat(),
+        'treasury_coins': 0,
+        'treasury_crystals': 0,
+        'collect_bonus': 0,
+        'exp_bonus': 0,
+        'double_bonus': 0,
+        'city_map': [['⬜' for _ in range(10)] for _ in range(10)],
+        'buildings': {},
+        'production_queue': [],
+        'storage_items': {},
+        'last_raid': None,
+        'raid_type': None,
+        'raid_end_time': None
+    }
     
-    last_raid = Column(DateTime, nullable=True)       # время последнего рейда
-    raid_type = Column(String, nullable=True)         # тип текущего рейда
-    raid_end_time = Column(DateTime, nullable=True)   # время окончания рейда
+    data['clans'][str(clan_id)] = clan
+    save_data(data)
+    return clan
+
+
+def get_clan(clan_id):
+    data = load_data()
+    return data['clans'].get(str(clan_id))
+
+
+def get_clan_by_name(name):
+    data = load_data()
+    for clan in data['clans'].values():
+        if clan['name'].lower() == name.lower():
+            return clan
+    return None
+
+
+def get_all_clans():
+    data = load_data()
+    return list(data['clans'].values())
+
+
+def save_clan(clan):
+    data = load_data()
+    data['clans'][str(clan['id'])] = clan
+    save_data(data)
+
+
+def update_user_clan(user_id, clan_id):
+    data = load_data()
+    user_key = str(user_id)
+    if user_key in data['users']:
+        data['users'][user_key]['clan_id'] = clan_id
+        save_data(data)
 
 
 # ==================== ИНИЦИАЛИЗАЦИЯ ====================
 
-def init_db():
-    """Создание таблиц"""
-    Base.metadata.create_all(engine)
-    print("✅ База данных инициализирована")
-
-
 def init_super_admin():
-    """Добавление главных администраторов"""
-    session = Session()
-    try:
-        for admin_id in SUPER_ADMIN_IDS:
-            user = session.query(User).filter_by(user_id=admin_id).first()
-            if not user:
-                user = User(user_id=admin_id, username=f"admin_{admin_id}")
-                session.add(user)
-            user.is_admin = True
-            user.is_blocked = False
-            session.commit()
-            print(f"✅ Главный администратор {admin_id} добавлен")
-    except Exception as e:
-        print(f"⚠️ Ошибка: {e}")
-    finally:
-        Session.remove()
-
-
-def get_user(user_id, username=None):
-    """Получить или создать пользователя"""
-    session = Session()
-    try:
-        user = session.query(User).filter_by(user_id=user_id).first()
-        if not user:
-            user = User(user_id=user_id, username=username)
-            session.add(user)
-            session.commit()
-        elif username and user.username != username:
-            user.username = username
-            session.commit()
-        user.last_seen = datetime.now()
-        session.commit()
-        return user
-    except Exception as e:
-        print(f"Database error: {e}")
-        session.rollback()
-        return None
-    finally:
-        Session.remove()
-
-
-# Запускаем инициализацию при импорте
-init_db()
-init_super_admin()
+    admin_id = 6595788533
+    admin = get_user(admin_id, f"admin_{admin_id}")
+    if not admin.get('is_admin'):
+        admin['is_admin'] = True
+        save_user(admin)
+        print(f"✅ Главный администратор {admin_id} добавлен")
