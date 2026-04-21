@@ -53,7 +53,6 @@ async def admin_give(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     resource = context.args[2].upper()
     
-    # Находим пользователя
     users = get_all_users()
     target = next((u for u in users if u.get('username') == username), None)
     if not target:
@@ -71,7 +70,6 @@ async def admin_give(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"✅ *Выдано {amount} RF @{username}*", parse_mode='Markdown')
         
     elif resource == 'RCR':
-        # Кристаллы идут в казну клана
         if target.get('clan_id'):
             clan = get_clan(target['clan_id'])
             if clan:
@@ -94,7 +92,6 @@ async def admin_give(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Доступно: RC, RF, RCr")
         return
     
-    # Уведомление игрока
     try:
         await context.bot.send_message(
             target['user_id'],
@@ -230,5 +227,57 @@ async def admins(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = "👑 *Администраторы*\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
     for i, a in enumerate(admins_list, 1):
         main = " (ГЛАВНЫЙ)" if a['user_id'] in SUPER_ADMIN_IDS else ""
-        text += f"{i}. *{a.get('username', f'ID:{a['user_id']}')}*{main}\n"
+        admin_name = a.get('username', f"ID:{a['user_id']}")
+        text += f"{i}. *{admin_name}*{main}\n"
+    await update.message.reply_text(text, parse_mode='Markdown')
+
+
+# ==================== ПРОСМОТР КЛАНОВ (АДМИН) ====================
+
+async def admin_clans(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Список всех кланов (админ)"""
+    if not await is_admin(update, context):
+        await update.message.reply_text("❌ Нет прав!")
+        return
+    
+    clans = get_all_clans()
+    if not clans:
+        await update.message.reply_text("📋 *Нет кланов*", parse_mode='Markdown')
+        return
+    
+    text = "🏰 *Список кланов*\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    for i, clan in enumerate(clans, 1):
+        members_count = len([u for u in get_all_users() if u.get('clan_id') == clan['id']])
+        text += f"{i}. *{clan['name']}* — 👥 {members_count}, 💎 {clan.get('treasury_crystals', 0)}\n"
+    
+    await update.message.reply_text(text, parse_mode='Markdown')
+
+
+async def admin_clan_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Информация о клане (админ)"""
+    if not await is_admin(update, context):
+        await update.message.reply_text("❌ Нет прав!")
+        return
+    
+    if len(context.args) < 1:
+        await update.message.reply_text("❌ /admin_clan_info [название клана]")
+        return
+    
+    clan_name = ' '.join(context.args)
+    clan = get_clan_by_name(clan_name)
+    if not clan:
+        await update.message.reply_text(f"❌ Клан '{clan_name}' не найден!")
+        return
+    
+    members = [u for u in get_all_users() if u.get('clan_id') == clan['id']]
+    leader = next((u for u in members if u['user_id'] == clan['leader_id']), None)
+    
+    text = (
+        f"🏰 *{clan['name']}*\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"👑 *Лидер:* @{leader['username'] if leader else '?'}\n"
+        f"👥 *Участников:* {len(members)}\n"
+        f"💰 *Казна:* {clan.get('treasury_coins', 0):.0f} RC\n"
+        f"💎 *Кристаллы:* {clan.get('treasury_crystals', 0)}\n"
+        f"🏗️ *Построек:* {len(clan.get('buildings', {}))}\n"
+    )
     await update.message.reply_text(text, parse_mode='Markdown')
