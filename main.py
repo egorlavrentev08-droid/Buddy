@@ -3,31 +3,17 @@
 
 from datetime import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from telegram.ext import CommandHandler
+from telegram.ext import CommandHandler, Application
 
-# Импорты из config
 from config import logger, TOKEN
-
-# Импорты из core
 from core import backups, restore_backup, backup_now, auto_backup
-
-# Импорты команд из user (базовые)
 from user import start, help_command, profile
-
-# Импорты клановых команд
 from clan import clan_command
-
-# Импорты команд кланового города
 from city import city, city_build, city_upgrade, city_info
-
-# Импорты админ-команд
 from admin import (
     admin_giveme, admin_give, admin_take, admin_setlevel,
-    admin_players, admins
+    admin_players, admins, admin_clans, admin_clan_info
 )
-
-# Создаём шедулер
-scheduler = AsyncIOScheduler()
 
 
 # ==================== РЕГИСТРАЦИЯ КОМАНД ====================
@@ -56,6 +42,8 @@ def register_handlers(app):
     app.add_handler(CommandHandler("setlevel", admin_setlevel))
     app.add_handler(CommandHandler("players", admin_players))
     app.add_handler(CommandHandler("admins", admins))
+    app.add_handler(CommandHandler("admin_clans", admin_clans))
+    app.add_handler(CommandHandler("admin_clan_info", admin_clan_info))
     
     # Бэкапы
     app.add_handler(CommandHandler("backups", backups))
@@ -75,22 +63,23 @@ def init_bot_data(app):
 
 def main():
     """Запуск бота"""
-    from telegram.ext import Application
-    
     app = Application.builder().token(TOKEN).build()
     
     init_bot_data(app)
     register_handlers(app)
     
-    # Запускаем планировщик для автобэкапов (каждый час)
+    # Создаём шедулер ПОСЛЕ запуска аппы
+    scheduler = AsyncIOScheduler()
     scheduler.add_job(auto_backup, 'interval', hours=1)
-    scheduler.start()
     
+    # Запускаем аппу
     logger.info("🌟 RadCoin Buddy (тестовый бот) запущен!")
     logger.info("🏗️ Тестируем клановые города!")
     logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     
+    # Запускаем шедулер вместе с аппой
     app.run_polling()
+    scheduler.start()
 
 
 if __name__ == '__main__':
