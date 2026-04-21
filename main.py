@@ -36,7 +36,7 @@ from admin import (
 
 # Импорты команд из city
 from city import (
-    clan_city, clan_build, clan_upgrade, clan_produce,
+    city, clan_build, clan_upgrade, clan_craft,
     clan_raid, clan_mine, check_production_complete,
     check_raid_trigger, check_daily_bonus
 )
@@ -87,13 +87,13 @@ def register_handlers(app):
     app.add_handler(CommandHandler("aradio", aradio))
 
     # Клановые города
-    app.add_handler(CommandHandler("clan_city", clan_city))
+    app.add_handler(CommandHandler("clan_city", city))
+    app.add_handler(CommandHandler("city", city))
     app.add_handler(CommandHandler("clan_build", clan_build))
     app.add_handler(CommandHandler("clan_upgrade", clan_upgrade))
-    app.add_handler(CommandHandler("clan_produce", clan_produce))
+    app.add_handler(CommandHandler("clan_craft", clan_craft))
     app.add_handler(CommandHandler("clan_raid", clan_raid))
     app.add_handler(CommandHandler("clan_mine", clan_mine))
-    app.add_handler(CommandHandler("city", clan_city))
 
     # Сундуки и фабрики
     app.add_handler(CommandHandler("chest", chest_command))
