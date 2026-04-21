@@ -34,12 +34,22 @@ from admin import (
     advice_handler, gchest, admin_players, sale
 )
 
-# Импорты команд из city
+#Импорты из city
 from city import (
-    city, clan_build, clan_upgrade, clan_craft,
+    city, city_map, clan_build, clan_upgrade, clan_craft,
     clan_raid, clan_mine, check_production_complete,
     check_raid_trigger, check_daily_bonus
 )
+
+# В регистрации хендлеров
+app.add_handler(CommandHandler("clan_city", city))
+app.add_handler(CommandHandler("city", city))
+app.add_handler(CommandHandler("city_map", city_map))
+app.add_handler(CommandHandler("clan_build", clan_build))
+app.add_handler(CommandHandler("clan_upgrade", clan_upgrade))
+app.add_handler(CommandHandler("clan_craft", clan_craft))
+app.add_handler(CommandHandler("clan_raid", clan_raid))
+app.add_handler(CommandHandler("clan_mine", clan_mine))
 
 # Создаём шедулер
 scheduler = AsyncIOScheduler()
