@@ -207,7 +207,8 @@ async def admin_players(update: Update, context: ContextTypes.DEFAULT_TYPE):
             clan = get_clan(u['clan_id'])
             if clan:
                 clan_name = clan['name']
-        text += f"{i}. *{u.get('username', f'ID:{u['user_id']}')}* — ур.{u.get('level', 1)}, 🏰{clan_name}\n"
+        user_name = u.get('username', f"ID:{u['user_id']}")
+        text += f"{i}. *{user_name}* — ур.{u.get('level', 1)}, 🏰{clan_name}\n"
         
         if len(text) > 3500:
             await update.message.reply_text(text, parse_mode='Markdown')
