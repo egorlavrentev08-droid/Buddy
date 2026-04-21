@@ -225,3 +225,26 @@ def get_user(user_id, username=None):
 # Запускаем инициализацию при импорте
 init_db()
 init_super_admin()
+
+# database.py
+
+class Clan(Base):
+    __tablename__ = 'clans'
+    id = Column(Integer, primary_key=True)
+    name = Column(String, unique=True)
+    leader_id = Column(Integer)
+    created_at = Column(DateTime, default=datetime.now)
+    treasury_coins = Column(Float, default=0)
+    treasury_crystals = Column(Integer, default=0)
+    collect_bonus = Column(Integer, default=0)
+    exp_bonus = Column(Integer, default=0)
+    double_bonus = Column(Integer, default=0)
+    
+    # Клановые города (НОВЫЕ ПОЛЯ)
+    city_level = Column(Integer, default=0)
+    city_buildings = Column(String, default='{}')
+    city_resources = Column(String, default='{"crystals": 0, "storage": {}}')
+    city_production = Column(String, default='[]')
+    last_raid = Column(DateTime, nullable=True)
+
+# ... остальные функции ...
