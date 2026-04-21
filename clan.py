@@ -1,13 +1,17 @@
-# clan.py - Кланы для тестового бота RadCoin Buddy
+# clan.py - Кланы для тестового бота (упрощённая версия)
 # Версия: 0.1.0
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from config import logger, MAX_CLAN_BONUS
+from config import logger
 from core import send_to_private, is_admin
-from database import Session, User, Clan
+from database import (
+    get_user, save_user, get_all_users,
+    create_clan, get_clan, get_clan_by_name, get_all_clans, save_clan,
+    update_user_clan
+)
 
 
 # ==================== КЛАНЫ ====================
@@ -69,42 +73,34 @@ async def clan_create(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Название до 30 символов")
         return
     
-    session = Session()
-    try:
-        user = session.query(User).filter_by(user_id=update.effective_user.id).first()
-        if not user:
-            await update.message.reply_text("❌ /start")
-            return
-        if user.clan_id:
-            await update.message.reply_text("❌ Вы уже в клане")
-            return
-        if user.level < 2:
-            await update.message.reply_text("❌ Для создания клана нужен 2 уровень")
-            return
-        if user.radcoins < 1000:
-            await update.message.reply_text(f"❌ Нужно 1000 RC, у вас {user.radcoins:.0f}")
-            return
-        
-        existing = session.query(Clan).filter_by(name=name).first()
-        if existing:
-            await update.message.reply_text("❌ Клан с таким названием уже существует")
-            return
-        
-        clan = Clan(name=name, leader_id=user.user_id)
-        session.add(clan)
-        session.flush()
-        user.clan_id = clan.id
-        user.radcoins -= 1000
-        session.commit()
-        
-        await update.message.reply_text(f"🏰 *Клан {name} создан!*\n\n💡 Теперь вы можете строить клановый город: `/city`", parse_mode='Markdown')
-        
-    except Exception as e:
-        logger.error(f"Error in clan_create: {e}")
-        session.rollback()
-        await update.message.reply_text("❌ Ошибка")
-    finally:
-        Session.remove()
+    user_id = update.effective_user.id
+    user = get_user(user_id)
+    
+    if user.get('clan_id'):
+        await update.message.reply_text("❌ Вы уже в клане")
+        return
+    
+    if user.get('level', 1) < 2:
+        await update.message.reply_text("❌ Для создания клана нужен 2 уровень")
+        return
+    
+    if user.get('radcoins', 0) < 1000:
+        await update.message.reply_text(f"❌ Нужно 1000 RC, у вас {user.get('radcoins', 0):.0f}")
+        return
+    
+    existing = get_clan_by_name(name)
+    if existing:
+        await update.message.reply_text("❌ Клан с таким названием уже существует")
+        return
+    
+    clan = create_clan(name, user_id)
+    
+    # Обновляем пользователя
+    user['clan_id'] = clan['id']
+    user['radcoins'] -= 1000
+    save_user(user)
+    
+    await update.message.reply_text(f"🏰 *Клан {name} создан!*\n\n💡 Теперь вы можете строить клановый город: `/city`", parse_mode='Markdown')
 
 
 async def clan_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -114,65 +110,50 @@ async def clan_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     name = ' '.join(context.args[1:])
     
-    session = Session()
-    try:
-        user = session.query(User).filter_by(user_id=update.effective_user.id).first()
-        if not user:
-            await update.message.reply_text("❌ /start")
-            return
-        if user.clan_id:
-            await update.message.reply_text("❌ Вы уже в клане")
-            return
-        
-        clan = session.query(Clan).filter_by(name=name).first()
-        if not clan:
-            await update.message.reply_text("❌ Клан не найден")
-            return
-        
-        user.clan_id = clan.id
-        session.commit()
-        await update.message.reply_text(f"✅ *Вы вступили в клан {clan.name}!*", parse_mode='Markdown')
-        
-    except Exception as e:
-        logger.error(f"Error in clan_join: {e}")
-        session.rollback()
-        await update.message.reply_text("❌ Ошибка")
-    finally:
-        Session.remove()
+    user_id = update.effective_user.id
+    user = get_user(user_id)
+    
+    if user.get('clan_id'):
+        await update.message.reply_text("❌ Вы уже в клане")
+        return
+    
+    clan = get_clan_by_name(name)
+    if not clan:
+        await update.message.reply_text("❌ Клан не найден")
+        return
+    
+    user['clan_id'] = clan['id']
+    save_user(user)
+    
+    await update.message.reply_text(f"✅ *Вы вступили в клан {clan['name']}!*", parse_mode='Markdown')
 
 
 async def clan_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Информация о клане"""
-    session = Session()
-    try:
-        user = session.query(User).filter_by(user_id=update.effective_user.id).first()
-        if not user or not user.clan_id:
-            await update.message.reply_text("❌ Вы не в клане")
-            return
-        
-        clan = session.query(Clan).filter_by(id=user.clan_id).first()
-        if not clan:
-            await update.message.reply_text("❌ Клан не найден")
-            return
-        
-        members = session.query(User).filter_by(clan_id=clan.id).count()
-        leader = session.query(User).filter_by(user_id=clan.leader_id).first()
-        
-        text = (
-            f"🏰 *{clan.name}*\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"👑 *Лидер:* @{leader.username if leader else '?'}\n"
-            f"👥 *Участников:* {members}\n"
-            f"💰 *Казна:* {clan.treasury_coins:.0f} RC\n"
-            f"💎 *Кристаллы:* {clan.treasury_crystals}\n\n"
-            f"🏗️ *Клановый город:* `/city`"
-        )
-        await update.message.reply_text(text, parse_mode='Markdown')
-        
-    except Exception as e:
-        logger.error(f"Error in clan_info: {e}")
-        await update.message.reply_text("❌ Ошибка")
-    finally:
-        Session.remove()
+    user_id = update.effective_user.id
+    user = get_user(user_id)
+    
+    if not user.get('clan_id'):
+        await update.message.reply_text("❌ Вы не в клане")
+        return
+    
+    clan = get_clan(user['clan_id'])
+    if not clan:
+        await update.message.reply_text("❌ Клан не найден")
+        return
+    
+    members = [u for u in get_all_users() if u.get('clan_id') == clan['id']]
+    leader = next((u for u in members if u['user_id'] == clan['leader_id']), None)
+    
+    text = (
+        f"🏰 *{clan['name']}*\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"👑 *Лидер:* @{leader['username'] if leader else '?'}\n"
+        f"👥 *Участников:* {len(members)}\n"
+        f"💰 *Казна:* {clan.get('treasury_coins', 0):.0f} RC\n"
+        f"💎 *Кристаллы:* {clan.get('treasury_crystals', 0)}\n\n"
+        f"🏗️ *Клановый город:* `/city`"
+    )
+    await update.message.reply_text(text, parse_mode='Markdown')
 
 
 async def clan_invest(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -180,6 +161,7 @@ async def clan_invest(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) < 2:
         await update.message.reply_text("❌ /clan invest [сумма]")
         return
+    
     try:
         amount = int(context.args[1])
         if amount <= 0:
@@ -189,34 +171,28 @@ async def clan_invest(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Введите число")
         return
     
-    session = Session()
-    try:
-        user = session.query(User).filter_by(user_id=update.effective_user.id).first()
-        if not user or not user.clan_id:
-            await update.message.reply_text("❌ Вы не в клане")
-            return
-        
-        clan = session.query(Clan).filter_by(id=user.clan_id).first()
-        if not clan:
-            await update.message.reply_text("❌ Клан не найден")
-            return
-        
-        if user.radcoins < amount:
-            await update.message.reply_text(f"❌ Не хватает! У вас {user.radcoins:.0f} RC")
-            return
-        
-        user.radcoins -= amount
-        clan.treasury_coins += amount
-        session.commit()
-        
-        await update.message.reply_text(f"💰 *Инвестировано {amount} RC в {clan.name}*", parse_mode='Markdown')
-        
-    except Exception as e:
-        logger.error(f"Error in clan_invest: {e}")
-        session.rollback()
-        await update.message.reply_text("❌ Ошибка")
-    finally:
-        Session.remove()
+    user_id = update.effective_user.id
+    user = get_user(user_id)
+    
+    if not user.get('clan_id'):
+        await update.message.reply_text("❌ Вы не в клане")
+        return
+    
+    clan = get_clan(user['clan_id'])
+    if not clan:
+        await update.message.reply_text("❌ Клан не найден")
+        return
+    
+    if user.get('radcoins', 0) < amount:
+        await update.message.reply_text(f"❌ Не хватает! У вас {user.get('radcoins', 0):.0f} RC")
+        return
+    
+    user['radcoins'] -= amount
+    clan['treasury_coins'] = clan.get('treasury_coins', 0) + amount
+    save_user(user)
+    save_clan(clan)
+    
+    await update.message.reply_text(f"💰 *Инвестировано {amount} RC в {clan['name']}*", parse_mode='Markdown')
 
 
 async def clan_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -224,6 +200,7 @@ async def clan_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) < 2:
         await update.message.reply_text("❌ /clan withdraw [сумма]")
         return
+    
     try:
         amount = int(context.args[1])
         if amount <= 0:
@@ -233,43 +210,37 @@ async def clan_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Введите число")
         return
     
-    session = Session()
-    try:
-        user = session.query(User).filter_by(user_id=update.effective_user.id).first()
-        if not user or not user.clan_id:
-            await update.message.reply_text("❌ Вы не в клане")
-            return
-        
-        clan = session.query(Clan).filter_by(id=user.clan_id).first()
-        if not clan:
-            await update.message.reply_text("❌ Клан не найден")
-            return
-        
-        if clan.leader_id != user.user_id:
-            await update.message.reply_text("❌ Только лидер может снимать средства")
-            return
-        
-        if clan.treasury_coins < amount:
-            await update.message.reply_text(f"❌ В казне {clan.treasury_coins:.0f} RC")
-            return
-        
-        clan.treasury_coins -= amount
-        user.radcoins += amount
-        session.commit()
-        
-        await update.message.reply_text(
-            f"💰 *Снято {amount} RC из казны*\n\n"
-            f"🏰 Клан: {clan.name}\n"
-            f"📊 Остаток: {clan.treasury_coins:.0f} RC",
-            parse_mode='Markdown'
-        )
-        
-    except Exception as e:
-        logger.error(f"Error in clan_withdraw: {e}")
-        session.rollback()
-        await update.message.reply_text("❌ Ошибка")
-    finally:
-        Session.remove()
+    user_id = update.effective_user.id
+    user = get_user(user_id)
+    
+    if not user.get('clan_id'):
+        await update.message.reply_text("❌ Вы не в клане")
+        return
+    
+    clan = get_clan(user['clan_id'])
+    if not clan:
+        await update.message.reply_text("❌ Клан не найден")
+        return
+    
+    if clan['leader_id'] != user_id:
+        await update.message.reply_text("❌ Только лидер может снимать средства")
+        return
+    
+    if clan.get('treasury_coins', 0) < amount:
+        await update.message.reply_text(f"❌ В казне {clan.get('treasury_coins', 0):.0f} RC")
+        return
+    
+    clan['treasury_coins'] -= amount
+    user['radcoins'] = user.get('radcoins', 0) + amount
+    save_clan(clan)
+    save_user(user)
+    
+    await update.message.reply_text(
+        f"💰 *Снято {amount} RC из казны*\n\n"
+        f"🏰 Клан: {clan['name']}\n"
+        f"📊 Остаток: {clan.get('treasury_coins', 0):.0f} RC",
+        parse_mode='Markdown'
+    )
 
 
 async def clan_give(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -288,79 +259,65 @@ async def clan_give(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Введите число")
         return
     
-    session = Session()
+    user_id = update.effective_user.id
+    user = get_user(user_id)
+    
+    if not user.get('clan_id'):
+        await update.message.reply_text("❌ Вы не в клане")
+        return
+    
+    clan = get_clan(user['clan_id'])
+    if not clan:
+        await update.message.reply_text("❌ Клан не найден")
+        return
+    
+    if clan['leader_id'] != user_id:
+        await update.message.reply_text("❌ Только лидер может выдавать средства")
+        return
+    
+    target = next((u for u in get_all_users() if u.get('username') == username), None)
+    if not target or target.get('clan_id') != clan['id']:
+        await update.message.reply_text(f"❌ @{username} не состоит в клане")
+        return
+    
+    if clan.get('treasury_coins', 0) < amount:
+        await update.message.reply_text(f"❌ В казне {clan.get('treasury_coins', 0):.0f} RC")
+        return
+    
+    clan['treasury_coins'] -= amount
+    target['radcoins'] = target.get('radcoins', 0) + amount
+    save_clan(clan)
+    save_user(target)
+    
+    await update.message.reply_text(
+        f"💰 *Выдано {amount} RC участнику @{username}*\n\n"
+        f"🏰 Клан: {clan['name']}\n"
+        f"📊 Остаток: {clan.get('treasury_coins', 0):.0f} RC",
+        parse_mode='Markdown'
+    )
+    
     try:
-        user = session.query(User).filter_by(user_id=update.effective_user.id).first()
-        if not user or not user.clan_id:
-            await update.message.reply_text("❌ Вы не в клане")
-            return
-        
-        clan = session.query(Clan).filter_by(id=user.clan_id).first()
-        if not clan:
-            await update.message.reply_text("❌ Клан не найден")
-            return
-        
-        if clan.leader_id != user.user_id:
-            await update.message.reply_text("❌ Только лидер может выдавать средства")
-            return
-        
-        target = session.query(User).filter_by(username=username).first()
-        if not target or target.clan_id != clan.id:
-            await update.message.reply_text(f"❌ @{username} не состоит в клане")
-            return
-        
-        if clan.treasury_coins < amount:
-            await update.message.reply_text(f"❌ В казне {clan.treasury_coins:.0f} RC")
-            return
-        
-        clan.treasury_coins -= amount
-        target.radcoins += amount
-        session.commit()
-        
-        await update.message.reply_text(
-            f"💰 *Выдано {amount} RC участнику @{username}*\n\n"
-            f"🏰 Клан: {clan.name}\n"
-            f"📊 Остаток: {clan.treasury_coins:.0f} RC",
+        await context.bot.send_message(
+            target['user_id'],
+            f"💰 *Вам выдали {amount} RC из казны клана {clan['name']}!*",
             parse_mode='Markdown'
         )
-        
-        try:
-            await context.bot.send_message(
-                target.user_id,
-                f"💰 *Вам выдали {amount} RC из казны клана {clan.name}!*",
-                parse_mode='Markdown'
-            )
-        except:
-            pass
-        
-    except Exception as e:
-        logger.error(f"Error in clan_give: {e}")
-        session.rollback()
-        await update.message.reply_text("❌ Ошибка")
-    finally:
-        Session.remove()
+    except:
+        pass
 
 
 async def clan_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Список кланов"""
-    session = Session()
-    try:
-        clans = session.query(Clan).order_by(Clan.created_at).all()
-        if not clans:
-            await update.message.reply_text("📋 *Нет кланов*", parse_mode='Markdown')
-            return
-        
-        text = "📋 *Список кланов*\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        for clan in clans:
-            members = session.query(User).filter_by(clan_id=clan.id).count()
-            text += f"🏰 *{clan.name}* — 👥 {members}\n"
-        await update.message.reply_text(text, parse_mode='Markdown')
-        
-    except Exception as e:
-        logger.error(f"Error in clan_list: {e}")
-        await update.message.reply_text("❌ Ошибка")
-    finally:
-        Session.remove()
+    clans = get_all_clans()
+    if not clans:
+        await update.message.reply_text("📋 *Нет кланов*", parse_mode='Markdown')
+        return
+    
+    text = "📋 *Список кланов*\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    for clan in clans:
+        members = [u for u in get_all_users() if u.get('clan_id') == clan['id']]
+        text += f"🏰 *{clan['name']}* — 👥 {len(members)}\n"
+    await update.message.reply_text(text, parse_mode='Markdown')
 
 
 async def clan_players(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -370,74 +327,65 @@ async def clan_players(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     clan_name = ' '.join(context.args[1:])
-    session = Session()
-    try:
-        clan = session.query(Clan).filter_by(name=clan_name).first()
-        if not clan:
-            await update.message.reply_text(f"❌ Клан '{clan_name}' не найден!")
-            return
-        
-        members = session.query(User).filter_by(clan_id=clan.id).order_by(User.level.desc()).all()
-        if not members:
-            await update.message.reply_text(f"📋 В клане '{clan_name}' нет участников")
-            return
-        
-        leader = session.query(User).filter_by(user_id=clan.leader_id).first()
-        
-        text = f"🏰 *{clan.name}*\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        text += f"👑 *Лидер:* @{leader.username if leader else '?'}\n"
-        text += f"👥 *Участников:* {len(members)}\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        
-        for i, member in enumerate(members, 1):
-            role = "👑 Лидер" if member.user_id == clan.leader_id else "🔹 Участник"
-            text += f"{i}. *{member.username or f'ID:{member.user_id}'}* — {role}\n"
-        
-        await update.message.reply_text(text, parse_mode='Markdown')
-        
-    except Exception as e:
-        logger.error(f"Error in clan_players: {e}")
-        await update.message.reply_text("❌ Ошибка")
-    finally:
-        Session.remove()
+    clan = get_clan_by_name(clan_name)
+    if not clan:
+        await update.message.reply_text(f"❌ Клан '{clan_name}' не найден!")
+        return
+    
+    members = [u for u in get_all_users() if u.get('clan_id') == clan['id']]
+    if not members:
+        await update.message.reply_text(f"📋 В клане '{clan_name}' нет участников")
+        return
+    
+    leader = next((u for u in members if u['user_id'] == clan['leader_id']), None)
+    
+    text = f"🏰 *{clan['name']}*\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    text += f"👑 *Лидер:* @{leader['username'] if leader else '?'}\n"
+    text += f"👥 *Участников:* {len(members)}\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    
+    for i, member in enumerate(members, 1):
+        role = "👑 Лидер" if member['user_id'] == clan['leader_id'] else "🔹 Участник"
+        text += f"{i}. *{member.get('username', f'ID:{member['user_id']}')}* — {role}\n"
+    
+    await update.message.reply_text(text, parse_mode='Markdown')
 
 
 async def clan_goodbye(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Распустить клан (только лидер)"""
-    session = Session()
-    try:
-        user = session.query(User).filter_by(user_id=update.effective_user.id).first()
-        if not user or not user.clan_id:
-            await update.message.reply_text("❌ Вы не в клане")
-            return
-        
-        clan = session.query(Clan).filter_by(id=user.clan_id).first()
-        if not clan:
-            await update.message.reply_text("❌ Клан не найден")
-            return
-        
-        if clan.leader_id != user.user_id:
-            await update.message.reply_text("❌ Только лидер")
-            return
-        
-        if not context.user_data.get('confirm_clan_delete'):
-            context.user_data['confirm_clan_delete'] = True
-            await update.message.reply_text(f"⚠️ *Распустить {clan.name}?* /clan goodbye ещё раз", parse_mode='Markdown')
-            return
-        
-        context.user_data.pop('confirm_clan_delete')
-        
-        members = session.query(User).filter_by(clan_id=clan.id).all()
-        for member in members:
-            member.clan_id = None
-        
-        session.delete(clan)
-        session.commit()
-        
-        await update.message.reply_text(f"🏰 *Клан {clan.name} распущен*", parse_mode='Markdown')
-        
-    except Exception as e:
-        logger.error(f"Error in clan_goodbye: {e}")
-        session.rollback()
-        await update.message.reply_text("❌ Ошибка")
-    finally:
-        Session.remove()
+    user_id = update.effective_user.id
+    user = get_user(user_id)
+    
+    if not user.get('clan_id'):
+        await update.message.reply_text("❌ Вы не в клане")
+        return
+    
+    clan = get_clan(user['clan_id'])
+    if not clan:
+        await update.message.reply_text("❌ Клан не найден")
+        return
+    
+    if clan['leader_id'] != user_id:
+        await update.message.reply_text("❌ Только лидер")
+        return
+    
+    if not context.user_data.get('confirm_clan_delete'):
+        context.user_data['confirm_clan_delete'] = True
+        await update.message.reply_text(f"⚠️ *Распустить {clan['name']}?* /clan goodbye ещё раз", parse_mode='Markdown')
+        return
+    
+    context.user_data.pop('confirm_clan_delete')
+    
+    # Удаляем клан у всех участников
+    for member in get_all_users():
+        if member.get('clan_id') == clan['id']:
+            member['clan_id'] = None
+            save_user(member)
+    
+    # Удаляем клан из базы (в упрощённой версии просто помечаем или удаляем)
+    from database import load_data, save_data
+    data = load_data()
+    if str(clan['id']) in data['clans']:
+        del data['clans'][str(clan['id'])]
+        save_data(data)
+    
+    await update.message.reply_text(f"🏰 *Клан {clan['name']} распущен*", parse_mode='Markdown')
