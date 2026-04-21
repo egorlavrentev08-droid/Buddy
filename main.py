@@ -1,12 +1,10 @@
 # main.py - Запуск тестового бота RadCoin Buddy
 # Версия: 0.1.0
 
-from datetime import datetime
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from telegram.ext import CommandHandler, Application
 
 from config import logger, TOKEN
-from core import backups, restore_backup, backup_now, auto_backup
+from core import backups, restore_backup, backup_now
 from user import start, help_command, profile
 from clan import clan_command
 from city import city, city_build, city_upgrade, city_info
@@ -45,7 +43,7 @@ def register_handlers(app):
     app.add_handler(CommandHandler("admin_clans", admin_clans))
     app.add_handler(CommandHandler("admin_clan_info", admin_clan_info))
     
-    # Бэкапы
+    # Бэкапы (без авто, только ручные)
     app.add_handler(CommandHandler("backups", backups))
     app.add_handler(CommandHandler("restore", restore_backup))
     app.add_handler(CommandHandler("backup_now", backup_now))
@@ -68,18 +66,11 @@ def main():
     init_bot_data(app)
     register_handlers(app)
     
-    # Создаём шедулер ПОСЛЕ запуска аппы
-    scheduler = AsyncIOScheduler()
-    scheduler.add_job(auto_backup, 'interval', hours=1)
-    
-    # Запускаем аппу
     logger.info("🌟 RadCoin Buddy (тестовый бот) запущен!")
     logger.info("🏗️ Тестируем клановые города!")
     logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     
-    # Запускаем шедулер вместе с аппой
     app.run_polling()
-    scheduler.start()
 
 
 if __name__ == '__main__':
