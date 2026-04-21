@@ -162,7 +162,14 @@ def migrate_db():
                     print(f"✅ Добавлена колонка: {col_name}")
                 except Exception as e:
                     print(f"⚠️ Ошибка при добавлении {col_name}: {e}")
-
+columns_to_add = {
+    # ... существующие колонки ...
+    'city_level': 'INTEGER DEFAULT 0',
+    'city_buildings': 'TEXT DEFAULT \'{}\'',
+    'city_resources': 'TEXT DEFAULT \'{"crystals": 0, "storage": {}}\'',
+    'city_production': 'TEXT DEFAULT \'[]\'',
+    'last_raid': 'DATETIME',
+}
 
 # ==================== ИНИЦИАЛИЗАЦИЯ ====================
 
