@@ -87,7 +87,6 @@ def register_handlers(app):
     app.add_handler(CommandHandler("aradio", aradio))
 
     # Клановые города
-    app.add_handler(CommandHandler("clan_city", city))
     app.add_handler(CommandHandler("city", city))
     app.add_handler(CommandHandler("city_map", city_map))
     app.add_handler(CommandHandler("clan_build", clan_build))
